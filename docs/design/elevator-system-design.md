@@ -196,12 +196,18 @@ Tests are written before the implementation in every pull request.
 dwell behaviour, and watchdog timing. Table-driven `[Theory]` cases carry the combinatorial
 surface so the intent stays visible.
 
-**Concurrency tests** drive 200 requests from 50 threads simultaneously and assert that no
-request is lost or duplicated and that the final state is consistent — the direct executable form
-of requirements N1–N5.
+**Concurrency tests** live in their own project, because measuring is a different activity from
+asserting on behaviour. They drive 3,200 requests from 64 threads, run four consumers against one
+car at once, and observe continuously while the system is under load — the direct executable form
+of requirements N1-N5.
 
-**Performance tests** measure p99 admission latency for `RequestElevator` and fail the build
-above 100 ms, proving requirement N6 rather than asserting it in prose.
+**Performance tests** measure p99 admission latency in three conditions — quiet, while the car is
+being driven, and with 64 callers contending — and fail above 100 ms, proving requirement N6
+rather than asserting it in prose. Memory tests pin the per-request cost and check that nothing is
+retained once work is served, which is requirement N7 made concrete.
+
+Correctness under concurrency stays in the unit suite, where it is fast and deterministic; only
+load and measurement move to the separate project.
 
 **Stack:** xUnit, FluentAssertions, `Microsoft.Extensions.TimeProvider.Testing`.
 
