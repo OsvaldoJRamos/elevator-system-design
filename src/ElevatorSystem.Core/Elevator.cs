@@ -79,6 +79,15 @@ public sealed class Elevator
     public ElevatorState State { get; private set; }
 
     /// <summary>
+    /// Gets the floors this car is able to serve.
+    /// </summary>
+    /// <remarks>
+    /// Exposed so that the boundary in front of the car validates against the same building
+    /// the car itself knows about, rather than against a second copy that could drift.
+    /// </remarks>
+    public FloorRange ServedFloors => _options.Floors;
+
+    /// <summary>
     /// Gets the floors still owed a visit, in the order they will be served: the floor currently
     /// being travelled to first, then everything queued behind it.
     /// </summary>

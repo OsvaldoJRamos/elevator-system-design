@@ -37,8 +37,8 @@ built.
 | ID | Requirement | How it is met |
 |----|-------------|---------------|
 | N1 | Thread-safe operations for concurrent requests | Multi-producer / single-consumer pipeline (§5) |
-| N2 | Atomic state changes | Immutable snapshot published under a single lock (§5) |
-| N3 | No race conditions in request assignment | Requests are only ever consumed by one thread (§5) |
+| N2 | Atomic state changes | Immutable snapshot published as one atomic reference write (§5) |
+| N3 | No race conditions in request assignment | The consumer is serialised by a gate, so assignment cannot interleave (§5) |
 | N4 | Thread-safe collections | `ConcurrentQueue<T>` for ingress |
 | N5 | 100+ concurrent requests handled efficiently | Lock-free enqueue; verified by concurrency tests (§8) |
 | N6 | Elevator assignment under 100 ms | Ingress is O(1) and never blocks; verified by a latency test (§8) |
@@ -88,6 +88,8 @@ build.
 | `IElevatorSchedulingStrategy` | Chooses the next target floor |
 | `FifoSchedulingStrategy` | First-in, first-out implementation of the above |
 | `ElevatorController` | Thread-safe public boundary: validate, enqueue, process, expose state |
+| `RequestResult` | The outcome of an admission attempt, reported as a value |
+| `ElevatorSnapshot` | An immutable description of the system at one instant |
 | `StuckElevatorWatchdog` | Detects absence of progress beyond a timeout |
 | `IElevatorEventSink` | Observability port: what happened, not how it is recorded |
 | `ElevatorRunner` (simulator) | Drives `ProcessRequests()` on a clock |
@@ -124,12 +126,12 @@ The system is **multi-producer, single-consumer**.
  N caller threads ──► ElevatorController.RequestElevator()
                        │  validate (pure)  →  ConcurrentQueue.Enqueue()   [lock-free, O(1)]
                        ▼
- 1 runner thread ──► ProcessRequests()
+ 1 consumer      ──► ProcessRequests()   [serialised by a gate]
                        │  drain queue → Elevator.AddRequest() → Elevator.Step()
                        ▼
-                     publish immutable ElevatorSnapshot (under one short lock)
+                     publish immutable ElevatorSnapshot   [Volatile.Write]
                        ▲
- any thread ──────► GetSnapshot()   [consistent read, never a torn state]
+ any thread ──────► GetSnapshot()    [Volatile.Read, wait-free, never a torn state]
 ```
 
 Three properties follow from this shape:
@@ -138,13 +140,15 @@ Three properties follow from this shape:
 allocation, not by contention. The 100 ms requirement is met by construction rather than by
 tuning.
 
-**The mutable domain is single-threaded.** `Elevator` is only ever touched by the runner thread,
-so its state machine needs no internal locking and stays readable. Race conditions in request
-assignment are impossible because assignment happens on exactly one thread.
+**The mutable domain is reached by one thread at a time.** `ProcessRequests` takes a gate before
+touching the car, so the state machine needs no internal locking and stays readable. The system
+is meant to be driven by a single runner, but correctness does not depend on a host honouring
+that: request assignment cannot race because the gate admits one thread at a time.
 
-**Reads are consistent.** Observers do not read live fields. After each processing cycle the
-controller publishes an immutable `ElevatorSnapshot` record; readers take it under a short lock
-and are then free of the writer entirely.
+**Reads are consistent and wait-free.** Observers do not read live fields. After each processing
+cycle the controller publishes an immutable `ElevatorSnapshot`, and readers take that reference
+through `Volatile.Read` — reference assignment is atomic and the volatile read supplies
+visibility, so an observer never blocks and never blocks the car.
 
 The alternative — one coarse lock around the whole elevator — was rejected: it makes every
 observer contend with the runner and it hides the state machine inside a critical section.
