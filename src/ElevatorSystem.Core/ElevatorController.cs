@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 
 namespace ElevatorSystem.Core;
 
@@ -24,12 +25,13 @@ namespace ElevatorSystem.Core;
 /// Observers never read the car's live fields. After each processing cycle the controller
 /// publishes an immutable <see cref="ElevatorSnapshot"/>, and <see cref="GetSnapshot"/> reads that
 /// reference without taking a lock at all — reference assignment is atomic, and
-/// <see cref="Volatile"/> supplies the visibility. A reader can never observe a half-updated car.
+/// <see cref="Volatile"/> supplies the visibility. A reader can never observe a half-updated state.
 /// </para>
 /// </remarks>
 public sealed class ElevatorController
 {
     private readonly Elevator _elevator;
+    private readonly IElevatorEventSink _eventSink;
     private readonly ConcurrentQueue<ElevatorRequest> _admittedRequests = new();
     private readonly Lock _processingGate = new();
 
@@ -39,12 +41,16 @@ public sealed class ElevatorController
     /// Initializes a new instance of the <see cref="ElevatorController"/> class.
     /// </summary>
     /// <param name="elevator">The car this controller drives. It takes sole ownership of it.</param>
+    /// <param name="eventSink">
+    /// Where to report what the system does. Defaults to discarding everything.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="elevator"/> is <see langword="null"/>.</exception>
-    public ElevatorController(Elevator elevator)
+    public ElevatorController(Elevator elevator, IElevatorEventSink? eventSink = null)
     {
         ArgumentNullException.ThrowIfNull(elevator);
 
         _elevator = elevator;
+        _eventSink = eventSink ?? NullElevatorEventSink.Instance;
         _publishedSnapshot = CaptureCurrentState();
     }
 
@@ -62,12 +68,11 @@ public sealed class ElevatorController
     /// <returns>Whether the request was admitted, and if not, why.</returns>
     public RequestResult RequestElevator(int floor, Direction direction)
     {
-        if (!Enum.IsDefined(direction))
-        {
-            return RequestResult.Rejected($"'{direction}' is not a direction the elevator understands.");
-        }
+        PickupRequest request = new(floor, direction);
 
-        return Admit(new PickupRequest(floor, direction));
+        return Enum.IsDefined(direction)
+            ? Admit(request)
+            : Refuse(request, $"'{direction}' is not a direction the elevator understands.");
     }
 
     /// <summary>
@@ -83,18 +88,16 @@ public sealed class ElevatorController
     /// </summary>
     /// <remarks>
     /// Safe to call from any thread and at any interval: calls are serialised, and the car
-    /// performs at most one transition per step regardless of how often it is asked.
+    /// performs at most one transition per step regardless of how often it is asked. A failure
+    /// while scheduling one request or while advancing the car is reported rather than thrown, so
+    /// that a single fault cannot take the system down or discard the rest of the queue.
     /// </remarks>
     public void ProcessRequests()
     {
         lock (_processingGate)
         {
-            while (_admittedRequests.TryDequeue(out ElevatorRequest? request))
-            {
-                _elevator.AddRequest(request);
-            }
-
-            _elevator.Step();
+            DrainAdmittedRequests();
+            AdvanceCar();
 
             Volatile.Write(ref _publishedSnapshot, CaptureCurrentState());
         }
@@ -118,13 +121,110 @@ public sealed class ElevatorController
 
         if (!servedFloors.Contains(request.Floor))
         {
-            return RequestResult.Rejected(
+            return Refuse(
+                request,
                 $"Floor {request.Floor} does not exist in this building, which serves floors " +
                 $"{servedFloors.Lowest} to {servedFloors.Highest}.");
         }
 
         _admittedRequests.Enqueue(request);
+        Report(new RequestAdmitted(request));
         return RequestResult.Accepted;
+    }
+
+    private RequestResult Refuse(ElevatorRequest request, string reason)
+    {
+        Report(new RequestRejected(request, reason));
+        return RequestResult.Rejected(reason);
+    }
+
+    [SuppressMessage(
+        "Design",
+        "CA1031:Do not catch general exception types",
+        Justification = "One malformed request must not discard the rest of the queue. The failure " +
+                        "is reported through the event sink rather than swallowed.")]
+    private void DrainAdmittedRequests()
+    {
+        while (_admittedRequests.TryDequeue(out ElevatorRequest? request))
+        {
+            try
+            {
+                _elevator.AddRequest(request);
+            }
+            catch (Exception failure)
+            {
+                Report(new RequestSchedulingFailed(request, failure));
+            }
+        }
+    }
+
+    [SuppressMessage(
+        "Design",
+        "CA1031:Do not catch general exception types",
+        Justification = "A fault in the car is reported and leaves the system observable, so that a " +
+                        "watchdog and an operator can see it, rather than tearing down the host.")]
+    private void AdvanceCar()
+    {
+        int floorBefore = _elevator.CurrentFloor;
+        ElevatorState stateBefore = _elevator.State;
+
+        try
+        {
+            _elevator.Step();
+        }
+        catch (Exception failure)
+        {
+            Report(new ElevatorStepFailed(failure));
+            return;
+        }
+
+        ReportWhatChanged(floorBefore, stateBefore);
+    }
+
+    private void ReportWhatChanged(int floorBefore, ElevatorState stateBefore)
+    {
+        int floorAfter = _elevator.CurrentFloor;
+        ElevatorState stateAfter = _elevator.State;
+
+        bool wasTravelling = stateBefore is ElevatorState.MovingUp or ElevatorState.MovingDown;
+        bool isTravelling = stateAfter is ElevatorState.MovingUp or ElevatorState.MovingDown;
+
+        if (!wasTravelling && isTravelling)
+        {
+            Direction direction = stateAfter is ElevatorState.MovingUp ? Direction.Up : Direction.Down;
+            Report(new ElevatorDeparted(floorBefore, direction));
+        }
+
+        if (floorAfter != floorBefore)
+        {
+            Report(new ElevatorMoved(floorBefore, floorAfter));
+        }
+
+        if (stateBefore is not ElevatorState.DoorOpen && stateAfter is ElevatorState.DoorOpen)
+        {
+            Report(new DoorOpened(floorAfter));
+        }
+        else if (stateBefore is ElevatorState.DoorOpen && stateAfter is not ElevatorState.DoorOpen)
+        {
+            Report(new DoorClosed(floorAfter));
+        }
+    }
+
+    [SuppressMessage(
+        "Design",
+        "CA1031:Do not catch general exception types",
+        Justification = "Observation must never break the thing it observes. A sink that throws is " +
+                        "a defect in the sink, and there is by definition nowhere left to report it.")]
+    private void Report(ElevatorEvent elevatorEvent)
+    {
+        try
+        {
+            _eventSink.Publish(elevatorEvent);
+        }
+        catch
+        {
+            // Deliberately ignored: see the justification above.
+        }
     }
 
     private ElevatorSnapshot CaptureCurrentState() => new(

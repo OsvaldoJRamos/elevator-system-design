@@ -13,7 +13,11 @@ internal sealed class ControllerHarness
 
     private readonly FakeTimeProvider _time = new();
 
-    public ControllerHarness(int startingFloor = 1, FloorRange? floors = null)
+    public ControllerHarness(
+        int startingFloor = 1,
+        FloorRange? floors = null,
+        IElevatorEventSink? eventSink = null,
+        IElevatorSchedulingStrategy? schedulingStrategy = null)
     {
         ElevatorOptions options = ElevatorOptions.Default with
         {
@@ -22,8 +26,13 @@ internal sealed class ControllerHarness
             DoorOpenDuration = TickDuration,
         };
 
-        Elevator elevator = new(options, _time, new FifoSchedulingStrategy(), startingFloor);
-        Controller = new ElevatorController(elevator);
+        Elevator elevator = new(
+            options,
+            _time,
+            schedulingStrategy ?? new FifoSchedulingStrategy(),
+            startingFloor);
+
+        Controller = new ElevatorController(elevator, eventSink);
     }
 
     public ElevatorController Controller { get; }
