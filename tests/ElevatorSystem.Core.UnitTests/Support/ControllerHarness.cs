@@ -17,14 +17,17 @@ internal sealed class ControllerHarness
         int startingFloor = 1,
         FloorRange? floors = null,
         IElevatorEventSink? eventSink = null,
-        IElevatorSchedulingStrategy? schedulingStrategy = null)
+        IElevatorSchedulingStrategy? schedulingStrategy = null,
+        ElevatorOptions? elevatorOptions = null)
     {
-        ElevatorOptions options = ElevatorOptions.Default with
+        ElevatorOptions options = elevatorOptions ?? ElevatorOptions.Default with
         {
             Floors = floors ?? FloorRange.OneToTen,
             FloorTravelTime = TickDuration,
             DoorOpenDuration = TickDuration,
         };
+
+        Options = options;
 
         Elevator elevator = new(
             options,
@@ -32,10 +35,22 @@ internal sealed class ControllerHarness
             schedulingStrategy ?? new FifoSchedulingStrategy(),
             startingFloor);
 
-        Controller = new ElevatorController(elevator, eventSink);
+        Controller = new ElevatorController(
+            elevator,
+            new StuckElevatorWatchdog(options.StuckTimeout, _time),
+            eventSink);
     }
 
     public ElevatorController Controller { get; }
+
+    public ElevatorOptions Options { get; }
+
+    /// <summary>Advances the clock without letting the controller react to it.</summary>
+    public ControllerHarness AdvanceClock(TimeSpan duration)
+    {
+        _time.Advance(duration);
+        return this;
+    }
 
     /// <summary>
     /// Advances the clock by one tick and lets the controller process whatever became due.
