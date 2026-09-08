@@ -1,8 +1,6 @@
 # Elevator System Design
 
-[![CI](https://github.com/OsvaldoJRamos/elevator-system-design/actions/workflows/ci.yml/badge.svg)](https://github.com/OsvaldoJRamos/elevator-system-design/actions/workflows/ci.yml)
-
-A thread-safe elevator control system in .NET, built as a coding challenge.
+A thread-safe elevator control system in .NET.
 
 The system models a single elevator serving floors 1 to 10: it accepts pickup requests (floor +
 direction) and destination requests from any number of concurrent callers, schedules them with a
