@@ -15,10 +15,11 @@ public sealed record ElevatorOptions
     private readonly FloorRange _floors = FloorRange.OneToTen;
     private readonly TimeSpan _floorTravelTime = TimeSpan.FromSeconds(2);
     private readonly TimeSpan _doorOpenDuration = TimeSpan.FromSeconds(3);
+    private readonly TimeSpan _stuckTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// Gets the configuration described by the brief: floors 1 to 10, two seconds per floor and
-    /// a three second door dwell.
+    /// Gets the configuration described by the brief: floors 1 to 10, two seconds per floor, a
+    /// three second door dwell and a thirty second stuck-detection timeout.
     /// </summary>
     public static ElevatorOptions Default { get; } = new();
 
@@ -47,6 +48,21 @@ public sealed record ElevatorOptions
     {
         get => _doorOpenDuration;
         init => _doorOpenDuration = RequirePositive(value);
+    }
+
+    /// <summary>
+    /// Gets how long the car may go without changing floor or state before it is treated as
+    /// stuck and withdrawn from service.
+    /// </summary>
+    /// <remarks>
+    /// Should comfortably exceed both <see cref="FloorTravelTime"/> and
+    /// <see cref="DoorOpenDuration"/>, since a car partway through either is making progress
+    /// that has simply not completed yet.
+    /// </remarks>
+    public TimeSpan StuckTimeout
+    {
+        get => _stuckTimeout;
+        init => _stuckTimeout = RequirePositive(value);
     }
 
     private static TimeSpan RequirePositive(TimeSpan value, [CallerMemberName] string? propertyName = null) =>
