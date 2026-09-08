@@ -5,11 +5,16 @@ namespace ElevatorSystem.Core.UnitTests;
 public sealed class ElevatorControllerTests
 {
     [Fact]
-    public void Constructor_RejectsAMissingElevator()
+    public void Constructor_RejectsMissingCollaborators()
     {
-        Action construct = () => _ = new ElevatorController(null!);
+        StuckElevatorWatchdog watchdog = new(TimeSpan.FromSeconds(30), TimeProvider.System);
+        Elevator elevator = new(ElevatorOptions.Default, TimeProvider.System, new FifoSchedulingStrategy());
 
-        construct.Should().Throw<ArgumentNullException>().WithParameterName("elevator");
+        Action withoutElevator = () => _ = new ElevatorController(null!, watchdog);
+        Action withoutWatchdog = () => _ = new ElevatorController(elevator, null!);
+
+        withoutElevator.Should().Throw<ArgumentNullException>().WithParameterName("elevator");
+        withoutWatchdog.Should().Throw<ArgumentNullException>().WithParameterName("watchdog");
     }
 
     [Fact]
@@ -21,6 +26,7 @@ public sealed class ElevatorControllerTests
 
         result.IsAccepted.Should().BeTrue();
         result.RejectionReason.Should().BeNull();
+        result.RejectionDetail.Should().BeNull();
     }
 
     [Theory]
@@ -34,8 +40,9 @@ public sealed class ElevatorControllerTests
 
         RequestResult result = harness.Controller.RequestElevator(floor, Direction.Up);
 
-        result.IsAccepted.Should().BeFalse();
-        result.RejectionReason.Should().NotBeNullOrWhiteSpace();
+        result.IsAccepted.Should().Be(false);
+        result.RejectionReason.Should().Be(RequestRejectionReason.FloorOutOfRange);
+        result.RejectionDetail.Should().NotBeNullOrWhiteSpace();
     }
 
     [Theory]

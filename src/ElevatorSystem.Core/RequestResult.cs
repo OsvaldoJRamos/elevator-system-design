@@ -10,10 +10,14 @@ namespace ElevatorSystem.Core;
 /// </remarks>
 public sealed record RequestResult
 {
-    private RequestResult(bool isAccepted, string? rejectionReason)
+    private RequestResult(
+        bool isAccepted,
+        RequestRejectionReason? rejectionReason,
+        string? rejectionDetail)
     {
         IsAccepted = isAccepted;
         RejectionReason = rejectionReason;
+        RejectionDetail = rejectionDetail;
     }
 
     /// <summary>
@@ -23,7 +27,8 @@ public sealed record RequestResult
     /// A single shared instance: admission happens on the hot path, and an accepted result
     /// carries no per-request information worth allocating for.
     /// </remarks>
-    public static RequestResult Accepted { get; } = new(isAccepted: true, rejectionReason: null);
+    public static RequestResult Accepted { get; } =
+        new(isAccepted: true, rejectionReason: null, rejectionDetail: null);
 
     /// <summary>
     /// Gets a value indicating whether the request was admitted.
@@ -31,18 +36,25 @@ public sealed record RequestResult
     public bool IsAccepted { get; }
 
     /// <summary>
-    /// Gets why the request was turned away, or <see langword="null"/> if it was accepted.
+    /// Gets the category of refusal, or <see langword="null"/> if the request was accepted.
     /// </summary>
-    public string? RejectionReason { get; }
+    public RequestRejectionReason? RejectionReason { get; }
+
+    /// <summary>
+    /// Gets a human-readable account of the refusal, suitable for a log or an error message,
+    /// or <see langword="null"/> if the request was accepted.
+    /// </summary>
+    public string? RejectionDetail { get; }
 
     /// <summary>
     /// Creates a result describing a request that was turned away.
     /// </summary>
-    /// <param name="reason">A description of why, suitable for a log or an error message.</param>
+    /// <param name="reason">The category of refusal, for a caller deciding whether to retry.</param>
+    /// <param name="detail">A description of why, suitable for a log or an error message.</param>
     /// <returns>A rejected result.</returns>
-    public static RequestResult Rejected(string reason)
+    public static RequestResult Rejected(RequestRejectionReason reason, string detail)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
-        return new RequestResult(isAccepted: false, rejectionReason: reason);
+        ArgumentException.ThrowIfNullOrWhiteSpace(detail);
+        return new RequestResult(isAccepted: false, rejectionReason: reason, rejectionDetail: detail);
     }
 }

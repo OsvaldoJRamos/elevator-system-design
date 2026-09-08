@@ -23,8 +23,12 @@ public sealed record RequestAdmitted(ElevatorRequest Request) : ElevatorEvent;
 
 /// <summary>A request was turned away at the boundary.</summary>
 /// <param name="Request">The request that was refused.</param>
-/// <param name="Reason">Why it was refused.</param>
-public sealed record RequestRejected(ElevatorRequest Request, string Reason) : ElevatorEvent;
+/// <param name="Reason">The category of refusal.</param>
+/// <param name="Detail">A human-readable account of why.</param>
+public sealed record RequestRejected(
+    ElevatorRequest Request,
+    RequestRejectionReason Reason,
+    string Detail) : ElevatorEvent;
 
 /// <summary>The car began travelling.</summary>
 /// <param name="FromFloor">The floor it set off from.</param>
@@ -52,3 +56,17 @@ public sealed record RequestSchedulingFailed(ElevatorRequest Request, Exception 
 /// <summary>Advancing the car failed. The system stayed up so the fault can be observed.</summary>
 /// <param name="Failure">What went wrong.</param>
 public sealed record ElevatorStepFailed(Exception Failure) : ElevatorEvent;
+
+/// <summary>
+/// The car went too long without making progress and has been withdrawn from service.
+/// </summary>
+/// <param name="Floor">Where it was when it stopped progressing.</param>
+/// <param name="State">What it was doing when it stopped progressing.</param>
+/// <param name="StalledFor">How long it had been without progress.</param>
+public sealed record ElevatorStalled(
+    int Floor,
+    ElevatorState State,
+    TimeSpan StalledFor) : ElevatorEvent;
+
+/// <summary>The car was put back into service after having been withdrawn.</summary>
+public sealed record ElevatorReturnedToService : ElevatorEvent;

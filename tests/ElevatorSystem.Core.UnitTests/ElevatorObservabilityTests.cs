@@ -30,7 +30,8 @@ public sealed class ElevatorObservabilityTests
 
         RequestRejected rejected = sink.OfType<RequestRejected>().Should().ContainSingle().Subject;
         rejected.Request.Floor.Should().Be(99);
-        rejected.Reason.Should().NotBeNullOrWhiteSpace();
+        rejected.Reason.Should().Be(RequestRejectionReason.FloorOutOfRange);
+        rejected.Detail.Should().NotBeNullOrWhiteSpace();
     }
 
     [Fact]

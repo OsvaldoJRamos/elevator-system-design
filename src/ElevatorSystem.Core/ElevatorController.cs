@@ -22,6 +22,11 @@ namespace ElevatorSystem.Core;
 /// hold no locks and read as ordinary sequential logic.
 /// </para>
 /// <para>
+/// A car that stops making progress is withdrawn from service rather than driven blindly. The
+/// withdrawal is reported, new requests are refused with a reason a caller can act on, and
+/// <see cref="ReturnToService"/> is the deliberate human act that undoes it.
+/// </para>
+/// <para>
 /// Observers never read the car's live fields. After each processing cycle the controller
 /// publishes an immutable <see cref="ElevatorSnapshot"/>, and <see cref="GetSnapshot"/> reads that
 /// reference without taking a lock at all — reference assignment is atomic, and
@@ -31,25 +36,35 @@ namespace ElevatorSystem.Core;
 public sealed class ElevatorController
 {
     private readonly Elevator _elevator;
+    private readonly StuckElevatorWatchdog _watchdog;
     private readonly IElevatorEventSink _eventSink;
     private readonly ConcurrentQueue<ElevatorRequest> _admittedRequests = new();
     private readonly Lock _processingGate = new();
 
     private ElevatorSnapshot _publishedSnapshot;
 
+    // Read by admitting threads outside the gate, so the write has to be visible to them.
+    private volatile bool _isOutOfService;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="ElevatorController"/> class.
     /// </summary>
     /// <param name="elevator">The car this controller drives. It takes sole ownership of it.</param>
+    /// <param name="watchdog">Detects a car that has stopped making progress.</param>
     /// <param name="eventSink">
     /// Where to report what the system does. Defaults to discarding everything.
     /// </param>
-    /// <exception cref="ArgumentNullException"><paramref name="elevator"/> is <see langword="null"/>.</exception>
-    public ElevatorController(Elevator elevator, IElevatorEventSink? eventSink = null)
+    /// <exception cref="ArgumentNullException">A required collaborator was not supplied.</exception>
+    public ElevatorController(
+        Elevator elevator,
+        StuckElevatorWatchdog watchdog,
+        IElevatorEventSink? eventSink = null)
     {
         ArgumentNullException.ThrowIfNull(elevator);
+        ArgumentNullException.ThrowIfNull(watchdog);
 
         _elevator = elevator;
+        _watchdog = watchdog;
         _eventSink = eventSink ?? NullElevatorEventSink.Instance;
         _publishedSnapshot = CaptureCurrentState();
     }
@@ -72,7 +87,10 @@ public sealed class ElevatorController
 
         return Enum.IsDefined(direction)
             ? Admit(request)
-            : Refuse(request, $"'{direction}' is not a direction the elevator understands.");
+            : Refuse(
+                request,
+                RequestRejectionReason.UnknownDirection,
+                $"'{direction}' is not a direction the elevator understands.");
     }
 
     /// <summary>
@@ -96,9 +114,41 @@ public sealed class ElevatorController
     {
         lock (_processingGate)
         {
+            if (_isOutOfService)
+            {
+                return;
+            }
+
             DrainAdmittedRequests();
             AdvanceCar();
+            WithdrawFromServiceIfStalled();
 
+            Volatile.Write(ref _publishedSnapshot, CaptureCurrentState());
+        }
+    }
+
+    /// <summary>
+    /// Puts a withdrawn car back into service.
+    /// </summary>
+    /// <remarks>
+    /// This is the engineer's act, not the system's: nothing returns a car to service
+    /// automatically, because nothing here can know whether the fault was fixed. Work admitted
+    /// before the fault is kept — a passenger who was waiting before it broke is still waiting
+    /// afterwards. Calling this on a car that is already in service does nothing.
+    /// </remarks>
+    public void ReturnToService()
+    {
+        lock (_processingGate)
+        {
+            if (!_isOutOfService)
+            {
+                return;
+            }
+
+            _isOutOfService = false;
+            _watchdog.Reset();
+
+            Report(new ElevatorReturnedToService());
             Volatile.Write(ref _publishedSnapshot, CaptureCurrentState());
         }
     }
@@ -117,12 +167,21 @@ public sealed class ElevatorController
 
     private RequestResult Admit(ElevatorRequest request)
     {
+        if (_isOutOfService)
+        {
+            return Refuse(
+                request,
+                RequestRejectionReason.ElevatorOutOfService,
+                "The elevator has been withdrawn from service and is not accepting requests.");
+        }
+
         FloorRange servedFloors = _elevator.ServedFloors;
 
         if (!servedFloors.Contains(request.Floor))
         {
             return Refuse(
                 request,
+                RequestRejectionReason.FloorOutOfRange,
                 $"Floor {request.Floor} does not exist in this building, which serves floors " +
                 $"{servedFloors.Lowest} to {servedFloors.Highest}.");
         }
@@ -132,10 +191,24 @@ public sealed class ElevatorController
         return RequestResult.Accepted;
     }
 
-    private RequestResult Refuse(ElevatorRequest request, string reason)
+    private RequestResult Refuse(ElevatorRequest request, RequestRejectionReason reason, string detail)
     {
-        Report(new RequestRejected(request, reason));
-        return RequestResult.Rejected(reason);
+        Report(new RequestRejected(request, reason, detail));
+        return RequestResult.Rejected(reason, detail);
+    }
+
+    private void WithdrawFromServiceIfStalled()
+    {
+        bool hasWorkPending = _elevator.TargetFloors.Count > 0 || !_admittedRequests.IsEmpty;
+
+        if (_watchdog.Observe(_elevator.CurrentFloor, _elevator.State, hasWorkPending)
+            is not TimeSpan stalledFor)
+        {
+            return;
+        }
+
+        _isOutOfService = true;
+        Report(new ElevatorStalled(_elevator.CurrentFloor, _elevator.State, stalledFor));
     }
 
     [SuppressMessage(
@@ -231,5 +304,6 @@ public sealed class ElevatorController
         _elevator.CurrentFloor,
         _elevator.State,
         _elevator.TargetFloors,
-        _admittedRequests.Count);
+        _admittedRequests.Count,
+        _isOutOfService);
 }

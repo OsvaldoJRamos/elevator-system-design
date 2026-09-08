@@ -14,8 +14,12 @@ namespace ElevatorSystem.Core;
 /// <param name="PendingRequestCount">
 /// How many admitted requests had not yet been handed to the car.
 /// </param>
+/// <param name="IsOutOfService">
+/// Whether the car had been withdrawn from service after failing to make progress.
+/// </param>
 public sealed record ElevatorSnapshot(
     int CurrentFloor,
     ElevatorState State,
     IReadOnlyList<int> TargetFloors,
-    int PendingRequestCount);
+    int PendingRequestCount,
+    bool IsOutOfService);
