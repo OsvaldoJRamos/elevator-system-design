@@ -15,3 +15,4 @@ Format: [Michael Nygard's template](https://cognitect.com/blog/2011/11/15/docume
 |----|-------|--------|
 | [0001](0001-record-architecture-decisions.md) | Record architecture decisions | Accepted |
 | [0002](0002-serve-requests-first-in-first-out.md) | Serve requests first-in, first-out | Accepted |
+| [0003](0003-serialise-the-car-behind-a-single-consumer-gate.md) | Serialise the car behind a single-consumer gate | Accepted |
