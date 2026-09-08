@@ -17,7 +17,11 @@ public sealed class ElevatorTests
     [Fact]
     public void Constructor_RejectsAStartingFloorOutsideTheBuilding()
     {
-        Action construct = () => _ = new Elevator(ElevatorOptions.Default, TimeProvider.System, startingFloor: 11);
+        Action construct = () => _ = new Elevator(
+            ElevatorOptions.Default,
+            TimeProvider.System,
+            new FifoSchedulingStrategy(),
+            startingFloor: 11);
 
         construct.Should().Throw<ArgumentOutOfRangeException>()
             .WithParameterName("startingFloor");
@@ -26,8 +30,8 @@ public sealed class ElevatorTests
     [Fact]
     public void Constructor_RejectsMissingCollaborators()
     {
-        Action withoutOptions = () => _ = new Elevator(null!, TimeProvider.System);
-        Action withoutClock = () => _ = new Elevator(ElevatorOptions.Default, null!);
+        Action withoutOptions = () => _ = new Elevator(null!, TimeProvider.System, new FifoSchedulingStrategy());
+        Action withoutClock = () => _ = new Elevator(ElevatorOptions.Default, null!, new FifoSchedulingStrategy());
 
         withoutOptions.Should().Throw<ArgumentNullException>().WithParameterName("options");
         withoutClock.Should().Throw<ArgumentNullException>().WithParameterName("timeProvider");

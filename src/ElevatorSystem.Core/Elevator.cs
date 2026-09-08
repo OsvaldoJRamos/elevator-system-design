@@ -21,7 +21,8 @@ public sealed class Elevator
 {
     private readonly ElevatorOptions _options;
     private readonly TimeProvider _timeProvider;
-    private readonly Queue<ElevatorRequest> _pendingRequests = new();
+    private readonly IElevatorSchedulingStrategy _schedulingStrategy;
+    private readonly List<ElevatorRequest> _pendingRequests = [];
 
     private long _phaseStartedAt;
     private int? _floorBeingServed;
@@ -31,6 +32,7 @@ public sealed class Elevator
     /// </summary>
     /// <param name="options">The floors served and the timings of the car's movements.</param>
     /// <param name="timeProvider">The clock the car reads to decide when a movement is due.</param>
+    /// <param name="schedulingStrategy">Decides which waiting request the car serves next.</param>
     /// <param name="startingFloor">
     /// The floor the car is parked at. Defaults to the lowest floor of the building.
     /// </param>
@@ -38,10 +40,15 @@ public sealed class Elevator
     /// <exception cref="ArgumentOutOfRangeException">
     /// <paramref name="startingFloor"/> is not a floor of this building.
     /// </exception>
-    public Elevator(ElevatorOptions options, TimeProvider timeProvider, int? startingFloor = null)
+    public Elevator(
+        ElevatorOptions options,
+        TimeProvider timeProvider,
+        IElevatorSchedulingStrategy schedulingStrategy,
+        int? startingFloor = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        ArgumentNullException.ThrowIfNull(schedulingStrategy);
 
         int parkedAt = startingFloor ?? options.Floors.Lowest;
         if (!options.Floors.Contains(parkedAt))
@@ -54,6 +61,7 @@ public sealed class Elevator
 
         _options = options;
         _timeProvider = timeProvider;
+        _schedulingStrategy = schedulingStrategy;
         _phaseStartedAt = timeProvider.GetTimestamp();
 
         CurrentFloor = parkedAt;
@@ -124,7 +132,7 @@ public sealed class Elevator
             return;
         }
 
-        _pendingRequests.Enqueue(request);
+        _pendingRequests.Add(request);
     }
 
     /// <summary>
@@ -243,6 +251,11 @@ public sealed class Elevator
             }
 
             _floorBeingServed = SelectNextFloorToServe();
+
+            if (_floorBeingServed is null)
+            {
+                return;
+            }
         }
 
         if (_floorBeingServed == CurrentFloor)
@@ -299,14 +312,33 @@ public sealed class Elevator
     }
 
     /// <summary>
-    /// Chooses which queued floor to serve next.
+    /// Asks the scheduling strategy which queued floor to serve next, and takes that request
+    /// out of the queue.
     /// </summary>
-    /// <remarks>
-    /// The brief asks for first-in, first-out, so the oldest request wins even when a nearer one
-    /// is waiting. Step 3 of the delivery plan lifts this decision out behind an interface, at
-    /// which point the trade-off gets its own decision record.
-    /// </remarks>
-    private int SelectNextFloorToServe() => _pendingRequests.Dequeue().Floor;
+    /// <returns>The floor to travel to, or <see langword="null"/> if the strategy declined.</returns>
+    private int? SelectNextFloorToServe()
+    {
+        ElevatorRequest? selected = _schedulingStrategy.SelectNext(
+            _pendingRequests,
+            new SchedulingContext(CurrentFloor, State));
+
+        if (selected is null)
+        {
+            return null;
+        }
+
+        // A strategy may only choose from what it was offered. Failing loudly here turns a
+        // defective strategy into an immediate, located error rather than a car that quietly
+        // travels to a floor nobody asked for.
+        if (!_pendingRequests.Remove(selected))
+        {
+            throw new InvalidOperationException(
+                $"The scheduling strategy '{_schedulingStrategy.GetType().Name}' chose a request for " +
+                $"floor {selected.Floor}, which is not among the pending requests.");
+        }
+
+        return selected.Floor;
+    }
 
     private bool IsAlreadyScheduled(int floor) =>
         _floorBeingServed == floor || _pendingRequests.Any(request => request.Floor == floor);
