@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Load and latency tests for the elevator controller. Separated from the unit suite because they measure rather than assert on behaviour, and are slower by nature.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/ElevatorSystem.Core/ElevatorSystem.Core.csproj" />
+  </ItemGroup>
+
+</Project>
