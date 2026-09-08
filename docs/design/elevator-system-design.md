@@ -29,8 +29,8 @@ built.
 | F6 | Movement and door primitives | `MoveUp`, `MoveDown`, `OpenDoor`, `CloseDoor` |
 | F7 | Queue management for floor requests | `Elevator.AddRequest` + `TargetFloors` |
 | F8 | Simple FIFO scheduling algorithm | `FifoSchedulingStrategy` |
-| F9 | Simulation of elevator movement | `ElevatorRunner` (simulator) |
-| F10 | Simple logging of elevator actions | `IElevatorEventSink` + logging sink |
+| F9 | Simulation of elevator movement | `ElevatorRunner` + `SimulationHostedService` (simulator) |
+| F10 | Simple logging of elevator actions | `IElevatorEventSink` + `LoggingElevatorEventSink` (simulator) |
 
 ### 2.2 Non-functional
 
@@ -63,6 +63,7 @@ ElevatorSystem.sln
 │   └── ElevatorSystem.Simulator/     # console host: DI, logging, scenarios
 ├── tests/
 │   ├── ElevatorSystem.Core.UnitTests/
+│   ├── ElevatorSystem.Simulator.Tests/
 │   └── ElevatorSystem.Core.ConcurrencyTests/
 ├── docs/
 │   ├── design/                       # this document
@@ -95,6 +96,8 @@ build.
 | `IElevatorEventSink` | Observability port: what happened, not how it is recorded |
 | `ElevatorEvent` and its cases | The closed set of things the system reports |
 | `ElevatorRunner` (simulator) | Drives `ProcessRequests()` on a clock |
+| `LoggingElevatorEventSink` (simulator) | Turns events into structured log lines |
+| `SimulationScenario` (simulator) | A scripted sequence of passengers, so a run is reproducible |
 
 The dependency direction is strictly one-way: the simulator depends on the core, never the
 reverse. `Elevator` depends on `IElevatorSchedulingStrategy` rather than on FIFO specifically, so
