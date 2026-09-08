@@ -44,7 +44,7 @@ built.
 | N6 | Elevator assignment under 100 ms | Ingress is O(1) and never blocks; verified by a latency test (§8) |
 | N7 | Reasonable memory under load | Bounded queue growth; requests are small immutable records |
 | N8 | Invalid floor requests handled gracefully | Rejected at the boundary as a result, not an exception (§7) |
-| N9 | Timeouts for stuck elevators | `StuckElevatorWatchdog` (§7) |
+| N9 | Timeouts for stuck elevators | `StuckElevatorWatchdog` plus withdrawal from service (§7) |
 | N10 | Exception handling for concurrent operations | Per-request isolation in the processing loop (§7) |
 
 ### 2.3 Non-goals
@@ -91,6 +91,7 @@ build.
 | `RequestResult` | The outcome of an admission attempt, reported as a value |
 | `ElevatorSnapshot` | An immutable description of the system at one instant |
 | `StuckElevatorWatchdog` | Detects absence of progress beyond a timeout |
+| `RequestRejectionReason` | Why a request was refused, in a form a caller can branch on |
 | `IElevatorEventSink` | Observability port: what happened, not how it is recorded |
 | `ElevatorEvent` and its cases | The closed set of things the system reports |
 | `ElevatorRunner` (simulator) | Drives `ProcessRequests()` on a clock |
@@ -171,10 +172,12 @@ concurrency exercise.
 condition, so `RequestElevator` returns an explicit `RequestResult` carrying a rejection reason.
 Exceptions are reserved for programming-contract violations such as a null strategy.
 
-**Stuck elevators.** `StuckElevatorWatchdog` observes progress. If the car reports a
-non-`Idle` state without changing floor or state for longer than the configured timeout, the
-watchdog raises `ElevatorStuck` and the car is taken out of service deliberately instead of
-spinning forever.
+**Stuck elevators.** `StuckElevatorWatchdog` defines "stuck" as absence of progress rather than
+by cause: a change of floor or of state is progress, and no change for longer than `StuckTimeout`
+is a stall, whatever produced it. An idle car with nothing to do is exempt; an idle car with
+passengers waiting is not. On detection the car is withdrawn from service — the stall is reported
+once, the car is no longer advanced, and new requests are refused with a typed reason a caller can
+branch on. Returning it is a deliberate human act, never automatic.
 
 **Concurrent failures.** The processing loop isolates faults at three levels. A request that
 cannot be scheduled is reported and the rest of the queue is still drained. A failure while
