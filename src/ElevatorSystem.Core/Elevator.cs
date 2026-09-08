@@ -106,10 +106,27 @@ public sealed class Elevator
                 floors.Add(servedFloor);
             }
 
-            floors.AddRange(_pendingRequests.Select(request => request.Floor));
+            // A plain loop rather than LINQ: this runs on every processing cycle, and an
+            // enumerator allocated once per tick is rubbish generated forever by a car that may
+            // be doing nothing at all.
+            foreach (ElevatorRequest request in _pendingRequests)
+            {
+                floors.Add(request.Floor);
+            }
+
             return floors;
         }
     }
+
+    /// <summary>
+    /// Gets a value indicating whether the car has anything left to do.
+    /// </summary>
+    /// <remarks>
+    /// Answers the question <see cref="TargetFloors"/> would otherwise be used to answer, without
+    /// building a list to do it. Callers that only need to know whether work exists should use
+    /// this; callers that need to know <em>which</em> floors should use <see cref="TargetFloors"/>.
+    /// </remarks>
+    public bool HasPendingWork => _floorBeingServed is not null || _pendingRequests.Count > 0;
 
     /// <summary>
     /// Queues a floor for the car to visit.

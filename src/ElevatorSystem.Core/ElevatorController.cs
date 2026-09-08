@@ -165,6 +165,13 @@ public sealed class ElevatorController
     public ElevatorSnapshot GetSnapshot() =>
         Volatile.Read(ref _publishedSnapshot) with { PendingRequestCount = _admittedRequests.Count };
 
+    /// <remarks>
+    /// The out-of-service check and the enqueue are not atomic with respect to each other, so a
+    /// request admitted at the instant the car is withdrawn will sit in the queue rather than
+    /// being refused. That is deliberate: the alternative is to make every admission contend with
+    /// the processing gate, and the consequence is benign — the request is served when the car
+    /// returns, which is what a passenger who pressed the button first would expect anyway.
+    /// </remarks>
     private RequestResult Admit(ElevatorRequest request)
     {
         if (_isOutOfService)
@@ -199,7 +206,7 @@ public sealed class ElevatorController
 
     private void WithdrawFromServiceIfStalled()
     {
-        bool hasWorkPending = _elevator.TargetFloors.Count > 0 || !_admittedRequests.IsEmpty;
+        bool hasWorkPending = _elevator.HasPendingWork || !_admittedRequests.IsEmpty;
 
         if (_watchdog.Observe(_elevator.CurrentFloor, _elevator.State, hasWorkPending)
             is not TimeSpan stalledFor)
