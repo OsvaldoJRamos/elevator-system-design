@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Domain model of the elevator system: state machine, scheduling and the thread-safe controller. Depends on nothing outside the BCL.</Description>
+  </PropertyGroup>
+
+</Project>

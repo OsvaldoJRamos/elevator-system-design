@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Console host that runs the elevator core against a real clock and logs every action.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../ElevatorSystem.Core/ElevatorSystem.Core.csproj" />
+  </ItemGroup>
+
+</Project>
