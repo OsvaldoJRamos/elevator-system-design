@@ -92,6 +92,7 @@ build.
 | `ElevatorSnapshot` | An immutable description of the system at one instant |
 | `StuckElevatorWatchdog` | Detects absence of progress beyond a timeout |
 | `IElevatorEventSink` | Observability port: what happened, not how it is recorded |
+| `ElevatorEvent` and its cases | The closed set of things the system reports |
 | `ElevatorRunner` (simulator) | Drives `ProcessRequests()` on a clock |
 
 The dependency direction is strictly one-way: the simulator depends on the core, never the
@@ -175,9 +176,11 @@ non-`Idle` state without changing floor or state for longer than the configured 
 watchdog raises `ElevatorStuck` and the car is taken out of service deliberately instead of
 spinning forever.
 
-**Concurrent failures.** The processing loop isolates each request: a failure while handling one
-request is reported through the event sink and does not tear down the runner or lose the
-remaining queue.
+**Concurrent failures.** The processing loop isolates faults at three levels. A request that
+cannot be scheduled is reported and the rest of the queue is still drained. A failure while
+advancing the car is reported and leaves the system observable rather than tearing down the
+host. And a sink that throws is discarded, because observation must never break the thing it
+observes.
 
 ## 8. Testing strategy
 
