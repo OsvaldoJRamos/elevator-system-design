@@ -1,0 +1,28 @@
+version: 2
+
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore"
+      include: scope
+    groups:
+      test-dependencies:
+        patterns:
+          - "xunit*"
+          - "Microsoft.NET.Test.Sdk"
+          - "coverlet.*"
+    ignore:
+      # 8.0.0 moved FluentAssertions to a paid commercial licence; stay on the
+      # Apache-2.0 line. See Directory.Packages.props.
+      - dependency-name: FluentAssertions
+        versions: [">=8.0.0"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
