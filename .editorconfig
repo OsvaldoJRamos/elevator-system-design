@@ -212,7 +212,7 @@ dotnet_diagnostic.IDE0052.severity = warning
 
 # Correctness rules worth escalating in a concurrent system.
 dotnet_diagnostic.CA2007.severity = none
-dotnet_diagnostic.CA1848.severity = none
+dotnet_diagnostic.CA1848.severity = warning
 
 # ---------------------------------------------------------------------------
 # Test projects

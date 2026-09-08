@@ -63,11 +63,12 @@ public sealed partial class SimulationHostedService : BackgroundService
             CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
 
         Task running = _runner.RunAsync(stopTheRunner.Token);
+        bool settled;
 
         try
         {
             await SubmitScenarioAsync(stoppingToken).ConfigureAwait(false);
-            await WaitUntilSettledAsync(stoppingToken).ConfigureAwait(false);
+            settled = await WaitUntilSettledAsync(stoppingToken).ConfigureAwait(false);
         }
         finally
         {
@@ -76,7 +77,10 @@ public sealed partial class SimulationHostedService : BackgroundService
         }
 
         ElevatorSnapshot finalState = _controller.GetSnapshot();
-        LogScenarioFinished(finalState.CurrentFloor);
+        SimulationOutcome outcome = SimulationOutcomes.Determine(finalState, settled);
+
+        ReportOutcome(outcome, finalState);
+        Environment.ExitCode = outcome.ToExitCode();
 
         _lifetime.StopApplication();
     }
@@ -105,7 +109,11 @@ public sealed partial class SimulationHostedService : BackgroundService
     /// Waits until the car has nothing left to do, so that the run ends on a complete picture
     /// rather than mid-journey.
     /// </summary>
-    private async Task WaitUntilSettledAsync(CancellationToken cancellationToken)
+    /// <returns>
+    /// <see langword="true"/> if the car came to rest; <see langword="false"/> if the wait timed
+    /// out. The distinction matters: only one of the two is a successful run.
+    /// </returns>
+    private async Task<bool> WaitUntilSettledAsync(CancellationToken cancellationToken)
     {
         long startedAt = _timeProvider.GetTimestamp();
 
@@ -113,11 +121,33 @@ public sealed partial class SimulationHostedService : BackgroundService
         {
             if (_timeProvider.GetElapsedTime(startedAt) > _options.SettleTimeout)
             {
-                LogGaveUpWaiting(_options.SettleTimeout);
-                return;
+                return false;
             }
 
             await Task.Delay(_options.ProcessingInterval, _timeProvider, cancellationToken).ConfigureAwait(false);
+        }
+
+        return true;
+    }
+
+    private void ReportOutcome(SimulationOutcome outcome, ElevatorSnapshot finalState)
+    {
+        switch (outcome)
+        {
+            case SimulationOutcome.Completed:
+                LogScenarioFinished(finalState.CurrentFloor);
+                break;
+
+            case SimulationOutcome.ElevatorWithdrawn:
+                LogElevatorWithdrawn(finalState.CurrentFloor, finalState.TargetFloors.Count);
+                break;
+
+            case SimulationOutcome.DidNotSettle:
+                LogGaveUpWaiting(_options.SettleTimeout);
+                break;
+
+            default:
+                throw new UnreachableException($"Unhandled simulation outcome '{outcome}'.");
         }
     }
 
@@ -141,4 +171,9 @@ public sealed partial class SimulationHostedService : BackgroundService
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The car had not settled after {Timeout}; stopping anyway.")]
     private partial void LogGaveUpWaiting(TimeSpan timeout);
+
+    [LoggerMessage(
+        Level = LogLevel.Error,
+        Message = "Scenario abandoned: the elevator was withdrawn from service on floor {Floor} with {Outstanding} floors still owed.")]
+    private partial void LogElevatorWithdrawn(int floor, int outstanding);
 }

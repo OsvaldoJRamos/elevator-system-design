@@ -104,6 +104,7 @@ itself:
 | Admission latency, while the car is being driven (p99) | 0.0002 ms | 100 ms |
 | Admission latency, 64 concurrent callers (p99) | 0.0020 ms | 100 ms |
 | Memory per admitted request | 68 bytes | — |
+| Memory per processing cycle, idle car | 104 bytes | — |
 | Requests admitted from 64 threads with none lost | 3,200 | 100+ |
 | Snapshots observed under load, all internally consistent | 83,834 | — |
 
