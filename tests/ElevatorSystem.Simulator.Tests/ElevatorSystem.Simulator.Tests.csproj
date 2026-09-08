@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/ElevatorSystem.Simulator/ElevatorSystem.Simulator.csproj" />
+  </ItemGroup>
+
+</Project>
